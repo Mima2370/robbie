@@ -88,9 +88,7 @@ class testExt{
 
 fetch (args, util){
   const link = args.link;
-  fetch(link)
-    .then((data) => ());
-
+  data = fetch(link)
   return this.write(data);
 }
 
