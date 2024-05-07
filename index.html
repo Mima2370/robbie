@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<!--
+    Timer instellen op drie plaatsen!
+-->
+<html>
+<head>
+    <link rel="stylesheet" href="styles.css">
+    <title>Robot Control Panel</title>
+</head>
+
+<body>
+    <div id="timer" style="display: none;">06:00</div> <!--timer instellen-->
+    <button class="button" onclick="connect_socket()">Connect</button>
+    <h3 id="status">Status: Disconnected</h3>
+    <center>
+        <h1 style="font-size:100px" id="score">0</h1>
+        <h2 style="font-size:70px">
+            <span id="timerlabel">Time left = </span>
+            <span style="font-size:70px"; style="color: #007bff;" id="speltijd">05:00</span> <!--timer instellen met 1 minuut minder-->
+        </h2>
+        
+    </center>
+    <div class="row">
+        <div class="column">
+            <fieldset id="pogingen" style="margin-top: 40px; width:fit-content; border:0;">
+                <legend><label onclick="if (innerHTML=='Starten ▼'){innerHTML='Starten ▲'} else {innerHTML='Starten ▼'}" for="toggle">Starten ▼</label></legend>
+                <input type="checkbox" id="toggle" checked="" hidden=""/>
+                <div id="content">
+                    <label for="inputfile" class="buttonSmall">
+                        Upload Backtracking
+                    </label>
+                    <input type="file" name="inputfile" id="inputfile" style="display:none">
+                    <script type="text/javascript">
+                        document.getElementById('inputfile')
+                            .addEventListener('change', function () {
+                 
+                                let fr = new FileReader();
+                                fr.onload = function () {
+                                    output = fr.result;
+                                    console.log(output);
+                                    sendCommand(output);
+                                }
+                 
+                                fr.readAsText(this.files[0]);
+                            })
+                    </script><br>
+                    <label><input type="radio" name="score" value="0" onclick="setScore(0)"> Poging 1</label><br>
+                    <label><input type="radio" name="score" value="-100" onclick="setScore(-100)"> Poging 2</label><br>
+                    <label><input type="radio" name="score" value="-200" onclick="setScore(-200)"> Poging 3</label><br>
+                    <button class="buttonSmall" onclick="reset_timer()">Start timer</button>
+                </div>
+            </fieldset>
+        <button class="button" onclick="button_resume_timer()" id="button_resume_timer">Timer hervatten</button>
+        <br>
+        <button class="button" onclick="updateScore(-50); pauseTimer()">Manuele interventie</button>
+        <br>
+        <button style="background-color:#c20a0a;", class="button" onclick="updateScore(-50);">Rood voorwerp aangeraakt</button>
+    </div>
+    <div class="column">
+        <div class="arrow-buttons">
+            <h2>Manuele besturing</h2>
+            <button class="arrow-button" id="up" onclick="sendCommand('tot_kruispunt')">&#8593;</button>
+            <div>
+                <button class="arrow-button" id="left" onclick="sendCommand('turn_left')">&#8592;</button>
+                <button class="arrow-button" id="down" onclick="sendCommand('turn_right')">&#8595;</button>
+                <button class="arrow-button" id="right" onclick="sendCommand('achteruit')">&#8594;</button>
+            </div>
+        </div>
+</div>
+</div>
+<embed type="text/html" src="scratch.html" width="500" height="200"> 
+</body>
+
+
+</html>
+
+<script>
+
+
+    let socket = undefined;
+
+    var allCollected = false;
+
+    var gameOver = false;
+
+    var timerPaused = false;
+    var timeoutId;
+    var timeout_startTime = new Date();
+    var timeout_timeLeft = 0;
+    var scoreElem = document.getElementById("score");
+
+    function connect_socket() {
+        // Close any existing sockets
+        disconnect_socket();
+
+        socket = new WebSocket("ws://localhost:8765/connect-websocket");
+
+        // Connection opened
+        socket.addEventListener("open", (event) => {
+            document.getElementById("status").textContent = "Status: Connected";
+        });
+
+        socket.addEventListener("close", (event) => {
+            socket = undefined;
+            document.getElementById("status").textContent = "Status: Disconnected";
+        });
+
+        socket.addEventListener("message", (event) => {
+            console.log(event.data)
+            // Layout van messages in de pico:
+            // websocket.send_message(json.dumps({"name":"iets", "ander iets": "iets"}))
+
+            message = JSON.parse(event.data)
+            if (message.name == "updateScore") {
+                updateScore(message.score)
+            } else if (message.name == "allCollected") {
+                allCollected = true;
+            }
+        });
+
+        socket.addEventListener("error", (event) => {
+            socket = undefined;
+            document.getElementById("status").textContent = "Status: Disconnected";
+        });
+    }
+
+    function disconnect_socket() {
+        if (socket != undefined) {
+            socket.close();
+        }
+    }
+
+    function sendCommand(command) {
+        if (socket != undefined) {
+            socket.send(command)
+        } else {
+
+            alert("Not connected to the PICO")
+        }
+    }
+
+
+
+    function startTimer() {
+        var presentTime = document.getElementById("timer").innerHTML;
+        var timeArray = presentTime.split(":");
+        var minutes = parseInt(timeArray[0]);
+        var seconds = checkSecond(parseInt(timeArray[1]) - 1);
+
+
+
+        if (!timerPaused) {
+            if (seconds == 59) {
+                minutes--;
+            }
+            if (minutes < 0) {
+                return;
+            }
+            
+            if (!allCollected || gameOver) { // ga verder zolang niet alles verzameld is of de tijd op is
+                if (minutes == 0) {
+                    updateScore(-1)
+                    if (seconds == 0){
+                        gameOver = true;
+                        updateScore(-200)
+                    }
+                }
+                document.getElementById("timer").innerHTML = minutes + ":" + seconds;
+                timeout_startTime = new Date(); // Houd bij wanneer de timer start
+                timeoutId = setTimeout(startTimer, 1000); // Store timeout id
+
+            } else {
+                // alle overgebleven seconden omzetten in punten
+                if (Number(minutes) >= 1) { // Als de straftijd niet begonnen is
+                    remaining_seconds = Number(seconds) + 1 // +1 omdat er een delay is
+                    console.log(remaining_seconds)
+                    if (Number(minutes) > 0) {
+                        console.log(minutes)
+                        remaining_seconds += (Number(minutes) * 60)
+                        console.log(remaining_seconds)
+                    }
+                    remaining_seconds -= 60 // Straftijd telt niet mee
+                    // 3 punten per seconde
+                    updateScore(remaining_seconds * 3)
+                }
+            }
+        }
+
+        if (minutes < 1) {
+                document.getElementById("timerlabel").textContent = "Penalty time left = ";
+                document.getElementById("speltijd").textContent = minutes + ":" + seconds
+                speltijd.style.color = "#ff1e1a"; // rood
+            } else {
+                document.getElementById("timerlabel").textContent = "Time left = ";
+                document.getElementById("speltijd").textContent = (minutes - 1) + ":" + seconds
+                speltijd.style.color = "#007bff"; // blauw
+            }       
+    }
+
+    function button_resume_timer(){
+        if (timerPaused){
+            resumeTimer();
+            document.getElementById("button_resume_timer").innerHTML = "Timer pauzeren"
+
+        } else {
+            pauseTimer();
+        }
+    }
+
+    function pauseTimer() {
+        document.getElementById("button_resume_timer").innerHTML = "Timer hervatten"
+        // Bereken de tijd die de timeout nog moet doen
+        timeout_timeLeft = 1000;
+        timeout_timeLeft -= new Date() - timeout_startTime;
+        timerPaused = true;
+        clearTimeout(timeoutId);
+    }
+
+    function resumeTimer() {
+        document.getElementById("button_resume_timer").innerHTML = "Timer pauzeren"
+        if (!timeout_timeLeft){
+            timeout_timeLeft = 1000;
+        }
+        timerPaused = false;
+        setTimeout(startTimer, timeout_timeLeft); // Store timeout id
+    }
+
+
+    function checkSecond(sec) {
+        if (sec < 10 && sec >= 0) {
+            sec = "0" + sec;
+        }
+        if (sec < 0) {
+            sec = "59";
+        }
+        return sec;
+    }
+
+    function reset_timer() {
+            document.getElementById("button_resume_timer").innerHTML = "Timer pauzeren"
+            document.getElementById("timer").innerHTML = "06:00"; // hier kan je de tijd instellen
+            clearTimeout(timeoutId);
+            startTimer()
+    }
+
+
+    function setScore(score) {
+        scoreElem.textContent = score
+        updateScore(0) // zorgt voor de juiste kleur
+    }
+
+
+    function updateScore(deltaScore) {
+        var currentScore = Number(scoreElem.textContent) + deltaScore;
+        scoreElem.textContent = currentScore;
+        if (currentScore < 0) {
+            score.style.color = "#ff1e1a"; // rood
+        } else {
+            score.style.color = "#007bff"; // blauw
+        }
+    }
+</script>
